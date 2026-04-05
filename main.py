@@ -5,7 +5,8 @@ import re
 
 app = FastAPI()
 
-DEEPSEEK_API_KEY = ""  # من Railway Variables
+import os
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 
 class TranslateRequest(BaseModel):
     transcript: list  # Flutter يرسل الـ transcript جاهز
