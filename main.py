@@ -1,44 +1,17 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from youtube_transcript_api import YouTubeTranscriptApi
 import requests
 import re
 
 app = FastAPI()
 
-DEEPSEEK_API_KEY = ""  # سنضيفه في Railway
+DEEPSEEK_API_KEY = ""  # من Railway Variables
 
 class TranslateRequest(BaseModel):
-    video_url: str
+    transcript: list  # Flutter يرسل الـ transcript جاهز
     target_language: str = "Arabic"
 
-def extract_video_id(url: str):
-    patterns = [
-        r'(?:v=|\/)([0-9A-Za-z_-]{11})',
-        r'(?:youtu\.be\/)([0-9A-Za-z_-]{11})'
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-    return None
-
-def get_transcript(video_id: str):
-    try:
-        ytt = YouTubeTranscriptApi()
-        transcript = ytt.fetch(video_id, languages=['en', 'ar'])
-        return [{'start': s.start, 'text': s.text} for s in transcript]
-    except Exception:
-        try:
-            ytt = YouTubeTranscriptApi()
-            transcript_list = ytt.list(video_id)
-            transcript = transcript_list.find_generated_transcript(['en', 'ar']).fetch()
-            return [{'start': s.start, 'text': s.text} for s in transcript]
-        except Exception as e:
-            raise HTTPException(status_code=404, detail=f"No transcript found: {str(e)}")
-
 def refine_and_translate(transcript: list, target_language: str):
-    # نجمع النص كامل مع timestamps
     full_text = ""
     for item in transcript:
         start = item['start']
@@ -71,7 +44,6 @@ Transcript:
     result = response.json()
     translated_text = result['choices'][0]['message']['content']
 
-    # نحول النص المترجم لقائمة مع timestamps
     subtitles = []
     lines = translated_text.strip().split('\n')
     for line in lines:
@@ -90,14 +62,8 @@ def root():
 
 @app.post("/translate")
 def translate_video(req: TranslateRequest):
-    video_id = extract_video_id(req.video_url)
-    if not video_id:
-        raise HTTPException(status_code=400, detail="Invalid YouTube URL")
-
-    transcript = get_transcript(video_id)
-    subtitles = refine_and_translate(transcript, req.target_language)
-
-    return {
-        "video_id": video_id,
-        "subtitles": subtitles
-    }
+    if not req.transcript:
+        raise HTTPException(status_code=400, detail="Transcript is empty")
+    
+    subtitles = refine_and_translate(req.transcript, req.target_language)
+    return {"subtitles": subtitles}
