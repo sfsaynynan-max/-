@@ -25,13 +25,15 @@ def extract_video_id(url: str):
 
 def get_transcript(video_id: str):
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'ar', 'auto'])
-        return transcript
-    except:
+        ytt = YouTubeTranscriptApi()
+        transcript = ytt.fetch(video_id, languages=['en', 'ar'])
+        return [{'start': s.start, 'text': s.text} for s in transcript]
+    except Exception:
         try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            ytt = YouTubeTranscriptApi()
+            transcript_list = ytt.list(video_id)
             transcript = transcript_list.find_generated_transcript(['en', 'ar']).fetch()
-            return transcript
+            return [{'start': s.start, 'text': s.text} for s in transcript]
         except Exception as e:
             raise HTTPException(status_code=404, detail=f"No transcript found: {str(e)}")
 
