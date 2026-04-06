@@ -31,32 +31,62 @@ def get_transcript(video_id: str):
     url = f"https://www.youtube.com/watch?v={video_id}"
     output_path = f"/tmp/{video_id}"
     
-    # نظف أي ملفات قديمة
+    # تحديث yt-dlp لأحدث إصدار
+    subprocess.run(['pip', 'install', '--upgrade', 'yt-dlp'], capture_output=True)
+    
+    # تنظيف أي ملفات قديمة
     for f in glob.glob(f"{output_path}*"):
-        os.remove(f)
+        try:
+            os.remove(f)
+        except:
+            pass
+
+    # User-Agent لمتصفح حقيقي
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
     try:
         subprocess.run(
-    [
-        'yt-dlp',
-        '--write-auto-sub',
-        '--write-sub',
-        '--skip-download',
-        '--sub-format', 'json3',
-        '--sub-langs', 'all',
-        '--no-warnings',
-        '--no-check-certificates',
-        '-o', output_path,
-        url
-    ],
-    capture_output=True,
-    text=True,
-    timeout=60
-)
+            [
+                'yt-dlp',
+                '--write-auto-sub',
+                '--skip-download',
+                '--sub-format', 'json3',
+                '--sub-langs', 'en,ar,fr,es',
+                '--user-agent', user_agent,
+                '--extractor-retries', '5',
+                '--no-warnings',
+                '--no-check-certificates',
+                '-o', output_path,
+                url
+            ],
+            capture_output=True,
+            text=True,
+            timeout=90
+        )
 
         files = glob.glob(f"{output_path}*.json3")
         if not files:
-            raise Exception("No subtitle file generated")
+            # محاولة ثانية مع خيار مختلف
+            subprocess.run(
+                [
+                    'yt-dlp',
+                    '--write-sub',
+                    '--skip-download',
+                    '--sub-format', 'json3',
+                    '--sub-langs', 'en,ar',
+                    '--user-agent', user_agent,
+                    '--extractor-retries', '5',
+                    '-o', output_path,
+                    url
+                ],
+                capture_output=True,
+                text=True,
+                timeout=90
+            )
+            files = glob.glob(f"{output_path}*.json3")
+
+        if not files:
+            raise Exception("No subtitle file generated even after retry")
 
         with open(files[0], 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -72,7 +102,10 @@ def get_transcript(video_id: str):
                 })
 
         for f in files:
-            os.remove(f)
+            try:
+                os.remove(f)
+            except:
+                pass
 
         if not transcript:
             raise Exception("Transcript is empty")
