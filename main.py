@@ -37,21 +37,22 @@ def get_transcript(video_id: str):
 
     try:
         subprocess.run(
-            [
-                'yt-dlp',
-                '--write-auto-sub',
-                '--skip-download',
-                '--sub-format', 'json3',
-                '--sub-langs', 'en.*,ar.*',
-                '--no-warnings',
-                '--no-check-certificates',
-                '-o', output_path,
-                url
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60
-        )
+    [
+        'yt-dlp',
+        '--write-auto-sub',
+        '--write-sub',
+        '--skip-download',
+        '--sub-format', 'json3',
+        '--sub-langs', 'all',
+        '--no-warnings',
+        '--no-check-certificates',
+        '-o', output_path,
+        url
+    ],
+    capture_output=True,
+    text=True,
+    timeout=60
+)
 
         files = glob.glob(f"{output_path}*.json3")
         if not files:
