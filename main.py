@@ -36,9 +36,10 @@ async def transcribe(
             tmp_path = tmp.name
 
         config = aai.TranscriptionConfig(
-            language_detection=True,
-            punctuate=True,
-        )
+    language_detection=True,
+    punctuate=True,
+    speech_model=aai.SpeechModel.universal,
+)
         
         transcriber = aai.Transcriber()
         transcript = transcriber.transcribe(tmp_path, config=config)
