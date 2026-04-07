@@ -35,7 +35,7 @@ async def process(
         config = aai.TranscriptionConfig(
             language_detection=True,
             punctuate=True,
-            speech_model="best",
+            speech_models=["universal-3-pro", "universal-2"],
         )
 
         transcriber = aai.Transcriber()
