@@ -1,6 +1,6 @@
 import os
 import httpx
-import assemblyai as aai
+import asyncio
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import tempfile
@@ -16,6 +16,49 @@ app.add_middleware(
 
 ASSEMBLYAI_KEY = os.environ.get("ASSEMBLYAI_KEY")
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY")
+ASSEMBLYAI_BASE = "https://api.assemblyai.com"
+
+
+async def upload_file(file_bytes: bytes) -> str:
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{ASSEMBLYAI_BASE}/v2/upload",
+            headers={"authorization": ASSEMBLYAI_KEY},
+            content=file_bytes,
+            timeout=120,
+        )
+        return response.json()["upload_url"]
+
+
+async def transcribe(upload_url: str) -> dict:
+    async with httpx.AsyncClient() as client:
+        # إرسال طلب التفريغ
+        response = await client.post(
+            f"{ASSEMBLYAI_BASE}/v2/transcript",
+            headers={"authorization": ASSEMBLYAI_KEY},
+            json={
+                "audio_url": upload_url,
+                "language_detection": True,
+                "punctuate": True,
+                "speech_models": ["universal-3-pro", "universal-2"],
+            },
+            timeout=30,
+        )
+        transcript_id = response.json()["id"]
+
+        # انتظار حتى اكتمال التفريغ
+        while True:
+            await asyncio.sleep(3)
+            poll = await client.get(
+                f"{ASSEMBLYAI_BASE}/v2/transcript/{transcript_id}",
+                headers={"authorization": ASSEMBLYAI_KEY},
+                timeout=30,
+            )
+            data = poll.json()
+            if data["status"] == "completed":
+                return data
+            elif data["status"] == "error":
+                raise Exception(f"Transcription error: {data['error']}")
 
 
 @app.post("/process")
@@ -25,26 +68,15 @@ async def process(
     is_premium: str = Form("false")
 ):
     try:
-        aai.settings.api_key = ASSEMBLYAI_KEY
+        # رفع الملف
+        file_bytes = await file.read()
+        upload_url = await upload_file(file_bytes)
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
+        # تفريغ
+        transcript_data = await transcribe(upload_url)
+        words = transcript_data.get("words", [])
 
-        config = aai.TranscriptionConfig(
-            language_detection=True,
-            punctuate=True,
-            speech_models=["universal-3-pro", "universal-2"],
-        )
-
-        transcriber = aai.Transcriber()
-        transcript = transcriber.transcribe(tmp_path, config=config)
-
-        if transcript.status == aai.TranscriptStatus.error:
-            raise HTTPException(status_code=500, detail=transcript.error)
-
-        words = transcript.words
+        # تقسيم إلى segments
         segments = []
         chunk = []
         chunk_start = None
@@ -52,9 +84,9 @@ async def process(
 
         for i, word in enumerate(words):
             if chunk_start is None:
-                chunk_start = word.start
-            chunk.append(word.text)
-            chunk_end = word.end
+                chunk_start = word["start"]
+            chunk.append(word["text"])
+            chunk_end = word["end"]
             if len(chunk) >= 8 or i == len(words) - 1:
                 segments.append({
                     "index": len(segments) + 1,
@@ -65,8 +97,7 @@ async def process(
                 chunk = []
                 chunk_start = None
 
-        os.unlink(tmp_path)
-
+        # ترجمة
         texts = [s["text"] for s in segments]
         combined = "\n---\n".join(texts)
 
@@ -82,7 +113,7 @@ async def process(
                     "messages": [
                         {
                             "role": "system",
-                            "content": f"You are a professional subtitle translator. Translate the following subtitle segments to {target_language}. Each segment is separated by ---. Return ONLY the translated segments separated by ---. Keep the same number of segments. Keep translations natural and concise for subtitles."
+                            "content": f"You are a professional subtitle translator. Translate the following subtitle segments to {target_language}. Each segment is separated by ---. Return ONLY the translated segments separated by ---. Keep the same number of segments. Keep translations natural and concise."
                         },
                         {
                             "role": "user",
@@ -110,7 +141,7 @@ async def process(
         return {
             "success": True,
             "segments": final_segments,
-            "detected_language": transcript.language_code
+            "detected_language": transcript_data.get("language_code", "unknown")
         }
 
     except Exception as e:
