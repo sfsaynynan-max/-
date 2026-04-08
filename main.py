@@ -3,7 +3,6 @@ import httpx
 import asyncio
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import tempfile
 
 app = FastAPI()
 
@@ -32,7 +31,6 @@ async def upload_file(file_bytes: bytes) -> str:
 
 async def transcribe(upload_url: str) -> dict:
     async with httpx.AsyncClient() as client:
-        # إرسال طلب التفريغ
         response = await client.post(
             f"{ASSEMBLYAI_BASE}/v2/transcript",
             headers={"authorization": ASSEMBLYAI_KEY},
@@ -46,7 +44,6 @@ async def transcribe(upload_url: str) -> dict:
         )
         transcript_id = response.json()["id"]
 
-        # انتظار حتى اكتمال التفريغ
         while True:
             await asyncio.sleep(3)
             poll = await client.get(
@@ -76,6 +73,9 @@ async def process(
         transcript_data = await transcribe(upload_url)
         words = transcript_data.get("words", [])
 
+        if not words:
+            raise Exception("No words found in audio")
+
         # تقسيم إلى segments
         segments = []
         chunk = []
@@ -101,6 +101,7 @@ async def process(
         texts = [s["text"] for s in segments]
         combined = "\n---\n".join(texts)
 
+        translated_parts = []
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
                 "https://api.deepseek.com/chat/completions",
@@ -125,11 +126,14 @@ async def process(
             )
 
         result = response.json()
+
         if "choices" not in result:
             raise Exception(f"DeepSeek error: {result}")
-            translated_text = result["choices"][0]["message"]["content"]
-        translated_parts = translated_text.split("\n---\n")
 
+        translated_text = result["choices"][0]["message"]["content"]
+        translated_parts = [p.strip() for p in translated_text.split("\n---\n")]
+
+        # دمج النتائج
         final_segments = []
         for i, seg in enumerate(segments):
             final_segments.append({
@@ -137,7 +141,7 @@ async def process(
                 "start": seg["start"],
                 "end": seg["end"],
                 "original": seg["text"],
-                "translated": translated_parts[i].strip() if i < len(translated_parts) else seg["text"]
+                "translated": translated_parts[i] if i < len(translated_parts) else seg["text"]
             })
 
         return {
