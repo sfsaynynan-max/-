@@ -125,7 +125,9 @@ async def process(
             )
 
         result = response.json()
-        translated_text = result["choices"][0]["message"]["content"]
+        if "choices" not in result:
+            raise Exception(f"DeepSeek error: {result}")
+            translated_text = result["choices"][0]["message"]["content"]
         translated_parts = translated_text.split("\n---\n")
 
         final_segments = []
